@@ -369,17 +369,26 @@ function App(){
   React.useEffect(()=>{
     window._fbOnValue(data=>{
       if(ignoreNext.current){ignoreNext.current=false;return;}
-      if(data){
+      if(data && (data.kids || data.quests || data.rewards)){
+        // Real data exists — load it
         if(data.kids)   setKids(data.kids);
         if(data.quests) setQuests(data.quests);
         if(data.rewards)setRewards(data.rewards);
+        setLoaded(true);
+        setSyncErr(null);
+        setLastSync(new Date().toLocaleTimeString());
+      } else if(!data) {
+        // Database is empty — seed it with defaults then show the app
+        ignoreNext.current=true;
+        window._fbSet({kids:DEFAULT_KIDS,quests:DEFAULT_QUESTS,rewards:DEFAULT_REWARDS})
+          .then(()=>{ setLoaded(true); setLastSync(new Date().toLocaleTimeString()); })
+          .catch(()=>{ setLoaded(true); });
+      } else {
+        setLoaded(true);
       }
-      setLoaded(true);
-      setSyncErr(null);
-      setLastSync(new Date().toLocaleTimeString());
     });
-    // If Firebase fails to load, unblock the UI after 4s
-    const fallback=setTimeout(()=>setLoaded(l=>{if(!l)return true;return l;}),4000);
+    // If Firebase fails to load entirely, unblock the UI after 6s
+    const fallback=setTimeout(()=>setLoaded(l=>{if(!l)return true;return l;}),6000);
     return()=>{clearTimeout(fallback);window._fbOff();};
   },[]);
 
