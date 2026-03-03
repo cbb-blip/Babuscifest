@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>Quest Board ⚔️</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<!-- Firebase compat SDKs (work in regular script tags, no module conflicts) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyA3eIJZsdDI2lB-34K8Lddj5tw3cy5rLj8",
+    authDomain: "quest-board-e2a1c.firebaseapp.com",
+    databaseURL: "https://quest-board-e2a1c-default-rtdb.firebaseio.com",
+    projectId: "quest-board-e2a1c",
+    storageBucket: "quest-board-e2a1c.firebasestorage.app",
+    messagingSenderId: "405395567826",
+    appId: "1:405395567826:web:9e22311e2b0fa23cb3a90b"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+  const boardRef = db.ref("board");
+
+  // Simple wrappers accessible from Babel scope
+  window._fbSet = (data) => boardRef.set(data);
+  window._fbOnValue = (cb) => boardRef.on("value", snap => cb(snap.val()));
+  window._fbOff = () => boardRef.off("value");
+</script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0c29; font-family: Georgia, serif; color: #e2e8f0; }
+  .qhov:hover { background: rgba(251,191,36,0.09) !important; border-color: rgba(251,191,36,0.35) !important; transform: translateX(4px); }
+  .rhov:hover  { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.35); }
+  select option { background: #1e293b; color: #e2e8f0; }
+  @keyframes fi     { from{opacity:0;transform:translateX(-50%) translateY(-10px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+  @keyframes spin   { 0%,100%{transform:scale(1)} 50%{transform:scale(1.3)} }
+  @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+  @keyframes rot    { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+  .pin-dot { width:14px;height:14px;border-radius:50%;border:2px solid #fbbf24;transition:background 0.15s; }
+  .pin-dot.filled { background:#fbbf24; }
+  .pin-key { width:72px;height:72px;border-radius:16px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#e2e8f0;font-size:22px;font-family:Georgia,serif;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;justify-content:center; }
+  .pin-key:hover  { background:rgba(251,191,36,0.15);border-color:rgba(251,191,36,0.4); }
+  .pin-key:active { transform:scale(0.93); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+// ── Icon matcher ──────────────────────────────────────────────────────────────
+const ICON_MAP=[
+  [/brush teeth|teeth/i,"🦷"],[/shower|bath/i,"🚿"],[/homework/i,"📝"],
+  [/writing|write/i,"✏️"],[/reading|read/i,"📚"],[/feed cat|cat food/i,"🐱"],
+  [/fold laundry|laundry/i,"👕"],[/scoop litter|litter/i,"🐾"],
+  [/dishwasher|empty dish/i,"🍽️"],[/left dishes/i,"🍽️"],[/bedroom/i,"🛏️"],
+  [/playroom/i,"🧸"],[/family room|living room/i,"🛋️"],[/dining table|dining room/i,"🪑"],
+  [/sweep kitchen|kitchen/i,"🧹"],[/sweep|broom/i,"🧹"],[/foyer|entrance/i,"🚪"],
+  [/vacuum/i,"🌀"],[/trash|garbage/i,"🗑️"],[/left shoes|shoes/i,"👟"],
+  [/screen time/i,"📺"],[/treat|candy|snack/i,"🍬"],[/allowance/i,"🪙"],
+  [/bedtime|extension|sleep/i,"🌙"],[/special meal|meal|dinner|pizza/i,"🍕"],
+  [/movie/i,"🎬"],[/game/i,"🎮"],
+];
+function iconFor(t){for(const[r,i]of ICON_MAP)if(r.test(t))return i;return"✨";}
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const REWARD_CATS=[
+  {id:"screen",  label:"Screen Time",      icon:"📺",color:"#4ade80"},
+  {id:"treats",  label:"Prizes and Treats",icon:"🍬",color:"#f472b6"},
+  {id:"money",   label:"Gold Coins",       icon:"🪙",color:"#fbbf24"},
+  {id:"privileges",label:"Special Powers", icon:"⭐",color:"#a78bfa"},
+];
+const RECURRENCE_OPTS=[
+  {id:"daily", label:"Daily"},
+  {id:"weekly",label:"Weekly"},
+  {id:"manual",label:"Manual (parent turns on/off)"},
+];
+const HERO_COLORS =["#ef4444","#818cf8","#34d399"];
+const HERO_ICONS  =["⚔️","🧙","🏹"];
+const HERO_CLASSES=["Warrior","Mage","Ranger"];
+const ALL_KIDS="all";
+const MILESTONES=[
+  {xp:0,   label:"Village",        icon:"🏘️",color:"#94a3b8"},
+  {xp:100, label:"Adventurer",     icon:"🗺️",color:"#4ade80"},
+  {xp:250, label:"Hero's Keep",    icon:"🏰",color:"#60a5fa"},
+  {xp:500, label:"Champion's Hall",icon:"⚔️",color:"#fbbf24"},
+  {xp:1000,label:"Legend's Peak",  icon:"👑",color:"#f472b6"},
+];
+const LEVELS=[
+  {level:1,title:"Squire",    minXp:0},
+  {level:2,title:"Adventurer",minXp:100},
+  {level:3,title:"Hero",      minXp:250},
+  {level:4,title:"Champion",  minXp:500},
+  {level:5,title:"Legend",    minXp:1000},
+];
+function getLevelInfo(xp){
+  let cur=LEVELS[0],nxt=LEVELS[1];
+  for(let i=0;i<LEVELS.length;i++){if(xp>=LEVELS[i].minXp){cur=LEVELS[i];nxt=LEVELS[i+1]||null;}}
+  return{cur,nxt};
+}
+function todayStr(){return new Date().toDateString();}
+function weekKey(){
+  const d=new Date(),day=d.getDay();
+  const diff=d.getDate()-day+(day===0?-6:1);
+  return new Date(new Date().setDate(diff)).toDateString();
+}
+function questAvailable(quest,comp){
+  if(!quest.enabled)return{available:false,reason:"Turned off by parent"};
+  if(quest.recurrence==="manual")return{available:true};
+  const key=quest.recurrence==="weekly"?weekKey():todayStr();
+  const done=comp.some(c=>c.id===quest.id&&c.periodKey===key);
+  if(done)return{available:false,reason:quest.recurrence==="weekly"?"Done this week ✓":"Done today ✓"};
+  return{available:true};
+}
+
+// ── PIN helpers ───────────────────────────────────────────────────────────────
+const PIN_KEY="fqb-pin";
+const TIMEOUT_MS=5*60*1000;
+function loadPin(){try{return localStorage.getItem(PIN_KEY)||null;}catch(e){return null;}}
+function savePin(p){try{localStorage.setItem(PIN_KEY,p);}catch(e){}}
+
+// ── Default data ──────────────────────────────────────────────────────────────
+const mkQ=(id,title,xp,diff,assignedTo,recurrence)=>({
+  id,title,xp,difficulty:diff,
+  assignedTo:assignedTo===undefined?ALL_KIDS:assignedTo,
+  recurrence:recurrence||"daily",
+  enabled:recurrence==="manual"?false:true,
+  icon:iconFor(title),
+});
+const DEFAULT_QUESTS=[
+  mkQ(1,"Brush Teeth AM",5,"Easy"),mkQ(2,"Brush Teeth PM",5,"Easy"),
+  mkQ(3,"Shower/Bath",10,"Easy"),mkQ(4,"Homework",20,"Medium"),
+  mkQ(5,"Writing Practice",15,"Medium"),mkQ(6,"Reading",10,"Easy"),
+  mkQ(7,"Feed Cats",10,"Easy"),mkQ(8,"Fold Laundry",20,"Medium",ALL_KIDS,"weekly"),
+  mkQ(9,"Scoop Litter",15,"Medium",ALL_KIDS,"weekly"),mkQ(10,"Empty Dishwasher",15,"Medium"),
+  mkQ(11,"Clean Bedroom",20,"Medium",ALL_KIDS,"weekly"),mkQ(12,"Clean Playroom",20,"Medium",ALL_KIDS,"weekly"),
+  mkQ(13,"Clean Family Room",20,"Medium",ALL_KIDS,"manual"),mkQ(14,"Clean Dining Table",10,"Easy"),
+  mkQ(15,"Sweep Kitchen",15,"Medium",ALL_KIDS,"manual"),mkQ(16,"Sweep Dining Room",15,"Medium",ALL_KIDS,"manual"),
+  mkQ(17,"Sweep Foyer",10,"Easy",ALL_KIDS,"manual"),mkQ(18,"Vacuum Family Room",20,"Medium",ALL_KIDS,"manual"),
+  mkQ(19,"Vacuum Bedroom",20,"Medium",ALL_KIDS,"manual"),mkQ(20,"Vacuum Playroom",20,"Medium",ALL_KIDS,"manual"),
+  mkQ(21,"Empty Trash",10,"Easy",ALL_KIDS,"manual"),
+  mkQ(22,"Left Dishes Out",-5,"Easy"),mkQ(23,"Left Shoes Out",-5,"Easy"),
+];
+const DEFAULT_REWARDS=[
+  {id:1,title:"Screen Time (30 min)",category:"screen",cost:50,icon:"📺"},
+  {id:2,title:"Choose a Treat",category:"treats",cost:30,icon:"🍬"},
+  {id:3,title:"$1 Allowance",category:"money",cost:20,icon:"🪙"},
+  {id:4,title:"$5 Allowance",category:"money",cost:80,icon:"🪙"},
+  {id:5,title:"30 Min Bedtime Ext.",category:"privileges",cost:50,icon:"🌙"},
+  {id:6,title:"Special Meal Pick",category:"privileges",cost:60,icon:"🍕"},
+];
+const DEFAULT_KIDS=[
+  {id:0,name:"Hero 1",xp:0,completedQuests:[],redeemedRewards:[]},
+  {id:1,name:"Hero 2",xp:0,completedQuests:[],redeemedRewards:[]},
+  {id:2,name:"Hero 3",xp:0,completedQuests:[],redeemedRewards:[]},
+];
+
+// ── Journey Map ───────────────────────────────────────────────────────────────
+const PATH_WP=[
+  {x:60,y:220},{x:140,y:180},{x:210,y:130},{x:280,y:160},
+  {x:330,y:210},{x:360,y:160},{x:400,y:110},{x:360,y:60},
+  {x:300,y:50},{x:240,y:80},{x:200,y:120},{x:160,y:80},{x:110,y:50},
+];
+const MILESTONE_WP=[0,3,6,9,12];
+const MAX_XP=1000;
+function getHeroPos(xp){
+  const pct=Math.min(xp,MAX_XP)/MAX_XP;
+  const total=PATH_WP.length-1;
+  const fi=pct*total;
+  const si=Math.min(Math.floor(fi),total-1);
+  const t=fi-si;
+  return{x:PATH_WP[si].x+(PATH_WP[si+1].x-PATH_WP[si].x)*t,
+         y:PATH_WP[si].y+(PATH_WP[si+1].y-PATH_WP[si].y)*t};
+}
+function buildPath(pts){
+  if(pts.length<2)return"";
+  let d=`M ${pts[0].x} ${pts[0].y}`;
+  for(let i=1;i<pts.length;i++){
+    const mx=(pts[i-1].x+pts[i].x)/2;
+    d+=` Q ${mx} ${pts[i-1].y} ${pts[i].x} ${pts[i].y}`;
+  }
+  return d;
+}
+function JourneyMap({xp,heroIcon,heroColor,kidName}){
+  const pos=getHeroPos(xp);
+  const fullD=buildPath(PATH_WP);
+  const pct=Math.min(xp/MAX_XP,1);
+  const fi=pct*(PATH_WP.length-1);
+  const progPts=[];
+  for(let i=0;i<=Math.floor(fi)&&i<PATH_WP.length;i++)progPts.push(PATH_WP[i]);
+  if(fi<PATH_WP.length-1)progPts.push(pos);
+  const progD=buildPath(progPts);
+  return(
+    <div style={{background:"linear-gradient(180deg,#0d2137 0%,#0f1f0f 60%,#1a1208 100%)",borderRadius:20,overflow:"hidden",marginBottom:4,border:"1px solid rgba(255,255,255,0.08)",position:"relative"}}>
+      <div style={{position:"absolute",inset:0,background:"radial-gradient(ellipse at 70% 20%,rgba(99,102,241,0.15) 0%,transparent 60%)"}}/>
+      <svg width="100%" viewBox="0 0 440 260" style={{display:"block"}}>
+        <text x="20" y="245" fontSize="22" opacity="0.6">🌲</text>
+        <text x="55" y="250" fontSize="16" opacity="0.4">🌿</text>
+        <text x="170" y="250" fontSize="18" opacity="0.5">🌳</text>
+        <text x="250" y="245" fontSize="14" opacity="0.4">🌾</text>
+        <text x="310" y="250" fontSize="20" opacity="0.5">🌲</text>
+        <text x="380" y="245" fontSize="16" opacity="0.4">🌿</text>
+        <text x="90"  y="30"  fontSize="14" opacity="0.5">⭐</text>
+        <text x="200" y="20"  fontSize="12" opacity="0.4">✨</text>
+        <text x="350" y="25"  fontSize="16" opacity="0.5">🌙</text>
+        <path d={fullD} fill="none" stroke="rgba(0,0,0,0.5)" strokeWidth="10" strokeLinecap="round"/>
+        <path d={fullD} fill="none" stroke="#334155" strokeWidth="6" strokeLinecap="round" strokeDasharray="8 5"/>
+        <path d={progD} fill="none" stroke="#fbbf24" strokeWidth="6" strokeLinecap="round"/>
+        <path d={progD} fill="none" stroke="rgba(251,191,36,0.3)" strokeWidth="12" strokeLinecap="round"/>
+        {MILESTONES.map((m,i)=>{
+          const wp=PATH_WP[MILESTONE_WP[i]];
+          const reached=xp>=m.xp;
+          return(
+            <g key={i}>
+              <circle cx={wp.x} cy={wp.y} r="18" fill={reached?m.color+"33":"rgba(30,41,59,0.9)"} stroke={reached?m.color:"#334155"} strokeWidth={reached?2.5:1.5}/>
+              <text x={wp.x} y={wp.y+5} textAnchor="middle" fontSize="14" opacity={reached?1:0.35}>{m.icon}</text>
+              <text x={wp.x} y={wp.y+(i===0||i===4?32:-24)} textAnchor="middle" fontSize="8" fill={reached?m.color:"#475569"} fontFamily="Georgia,serif">{m.label}</text>
+              <text x={wp.x} y={wp.y+(i===0||i===4?42:-14)} textAnchor="middle" fontSize="7" fill={reached?"rgba(255,255,255,0.5)":"#334155"} fontFamily="Georgia,serif">{m.xp>0?m.xp+" XP":"Start"}</text>
+            </g>
+          );
+        })}
+        <g style={{animation:"bounce 1.4s ease-in-out infinite"}}>
+          <circle cx={pos.x} cy={pos.y} r="16" fill={heroColor+"33"} stroke={heroColor} strokeWidth="2.5" style={{filter:`drop-shadow(0 0 8px ${heroColor}88)`}}/>
+          <text x={pos.x} y={pos.y+5} textAnchor="middle" fontSize="14">{heroIcon}</text>
+        </g>
+        <rect x={pos.x-22} y={pos.y+18} width="44" height="14" rx="7" fill="rgba(0,0,0,0.7)" stroke={heroColor+"66"} strokeWidth="1"/>
+        <text x={pos.x} y={pos.y+28} textAnchor="middle" fontSize="8" fill={heroColor} fontFamily="Georgia,serif" fontWeight="bold">{xp} XP</text>
+      </svg>
+      <div style={{position:"absolute",top:10,left:14,fontSize:11,color:heroColor,fontWeight:"bold",textShadow:"0 1px 4px rgba(0,0,0,0.8)"}}>{heroIcon} {kidName}'s Journey</div>
+    </div>
+  );
+}
+
+// ── PIN Pad ───────────────────────────────────────────────────────────────────
+function PinPad({title,subtitle,onComplete,onCancel,accentColor}){
+  const[digits,setDigits]=React.useState([]);
+  accentColor=accentColor||"#fbbf24";
+  function press(d){if(digits.length>=4)return;const next=[...digits,d];setDigits(next);if(next.length===4)setTimeout(()=>onComplete(next.join("")),120);}
+  function del(){setDigits(d=>d.slice(0,-1));}
+  return(
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:24,padding:"32px 20px"}}>
+      <div style={{fontSize:40}}>🔐</div>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:18,fontWeight:"bold",color:accentColor,marginBottom:6}}>{title}</div>
+        <div style={{fontSize:12,color:"#64748b"}}>{subtitle}</div>
+      </div>
+      <div style={{display:"flex",gap:16}}>
+        {[0,1,2,3].map(i=><div key={i} className={"pin-dot"+(digits.length>i?" filled":"")} style={{borderColor:accentColor,background:digits.length>i?accentColor:"transparent"}}/>)}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,72px)",gap:12}}>
+        {[1,2,3,4,5,6,7,8,9].map(n=><button key={n} className="pin-key" onClick={()=>press(String(n))}>{n}</button>)}
+        <div/><button className="pin-key" onClick={()=>press("0")}>0</button>
+        <button className="pin-key" onClick={del} style={{fontSize:18}}>⌫</button>
+      </div>
+      {onCancel&&<button onClick={onCancel} style={{color:"#475569",background:"none",border:"none",cursor:"pointer",fontSize:13,fontFamily:"Georgia,serif"}}>Cancel</button>}
+    </div>
+  );
+}
+
+// ── Misc ──────────────────────────────────────────────────────────────────────
+function XPBar({xp}){
+  const{cur,nxt}=getLevelInfo(xp);
+  const pct=nxt?Math.min(100,((xp-cur.minXp)/(nxt.minXp-cur.minXp))*100):100;
+  return(
+    <div style={{marginTop:8}}>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#94a3b8",marginBottom:4}}>
+        <span>{cur.title} (Lv.{cur.level})</span>{nxt&&<span>Next: {nxt.title} at {nxt.minXp} XP</span>}
+      </div>
+      <div style={{background:"#1e293b",borderRadius:99,height:8,overflow:"hidden",border:"1px solid #334155"}}>
+        <div style={{height:"100%",width:`${pct}%`,background:"linear-gradient(90deg,#fbbf24,#f59e0b)",borderRadius:99,transition:"width 0.6s ease"}}/>
+      </div>
+    </div>
+  );
+}
+function Toggle({on,onClick}){
+  return <div onClick={onClick} style={{width:38,height:22,borderRadius:99,background:on?"#4ade80":"#334155",position:"relative",cursor:"pointer",transition:"background 0.2s",flexShrink:0}}>
+    <div style={{position:"absolute",top:3,left:on?19:3,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left 0.2s"}}/>
+  </div>;
+}
+function QuestEditForm({quest,kids,onSave,onCancel,S}){
+  const[form,setForm]=React.useState({...quest});
+  return(
+    <div style={{...S.card,border:"1px solid rgba(251,191,36,0.35)",background:"rgba(251,191,36,0.05)",marginBottom:8}}>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        <div style={{display:"flex",gap:8}}>
+          <input style={{...S.inp,width:52}} value={form.icon} onChange={e=>setForm(f=>({...f,icon:e.target.value}))} placeholder="Icon"/>
+          <input style={{...S.inp,flex:1}} value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value,icon:iconFor(e.target.value)}))} placeholder="Quest name"/>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <input style={{...S.inp,flex:1}} type="number" value={form.xp} onChange={e=>setForm(f=>({...f,xp:+e.target.value}))}/>
+          <select style={{...S.inp,flex:1}} value={form.difficulty} onChange={e=>setForm(f=>({...f,difficulty:e.target.value}))}>
+            <option>Easy</option><option>Medium</option><option>Hard</option>
+          </select>
+        </div>
+        <select style={S.inp} value={form.assignedTo===ALL_KIDS?ALL_KIDS:String(form.assignedTo)} onChange={e=>setForm(f=>({...f,assignedTo:e.target.value===ALL_KIDS?ALL_KIDS:+e.target.value}))}>
+          <option value={ALL_KIDS}>All heroes</option>
+          {kids.map((k,i)=><option key={i} value={String(i)}>{k.name} only</option>)}
+        </select>
+        <select style={S.inp} value={form.recurrence} onChange={e=>setForm(f=>({...f,recurrence:e.target.value}))}>
+          {RECURRENCE_OPTS.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
+        <div style={{display:"flex",gap:8}}>
+          <button style={S.pBtn} onClick={()=>onSave(form)}>Save</button>
+          <button style={S.btn()} onClick={onCancel}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+function RewardEditForm({reward,onSave,onCancel,S}){
+  const[form,setForm]=React.useState({...reward});
+  return(
+    <div style={{...S.card,border:"1px solid rgba(167,139,250,0.35)",background:"rgba(167,139,250,0.05)",marginBottom:8}}>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        <div style={{display:"flex",gap:8}}>
+          <input style={{...S.inp,width:52}} value={form.icon} onChange={e=>setForm(f=>({...f,icon:e.target.value}))} placeholder="Icon"/>
+          <input style={{...S.inp,flex:1}} value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value,icon:iconFor(e.target.value)}))} placeholder="Reward name"/>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <input style={{...S.inp,flex:1}} type="number" value={form.cost} onChange={e=>setForm(f=>({...f,cost:+e.target.value}))}/>
+          <select style={{...S.inp,flex:1}} value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}>
+            {REWARD_CATS.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+          </select>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button style={S.pBtn} onClick={()=>onSave(form)}>Save</button>
+          <button style={S.btn()} onClick={onCancel}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+function App(){
+  const[kids,   setKids]   =React.useState(DEFAULT_KIDS);
+  const[quests, setQuests] =React.useState(DEFAULT_QUESTS);
+  const[rewards,setRewards]=React.useState(DEFAULT_REWARDS);
+  const[loaded, setLoaded] =React.useState(false);
+  const[syncing,setSyncing]=React.useState(false);
+  const[lastSync,setLastSync]=React.useState(null);
+  const[syncErr,setSyncErr]=React.useState(null);
+
+  const[activeKid,setActiveKid]=React.useState(0);
+  const[view,setView]=React.useState("quests");
+  const[toast,setToast]=React.useState(null);
+  const[celebrate,setCelebrate]=React.useState(false);
+
+  const[storedPin,setStoredPin]=React.useState(loadPin);
+  const[pinMode,setPinMode]=React.useState(null);
+  const[pinSetupFirst,setPinSetupFirst]=React.useState("");
+  const[pinUnlocked,setPinUnlocked]=React.useState(false);
+  const[pinError,setPinError]=React.useState("");
+  const[pinWrong,setPinWrong]=React.useState(false);
+  const unlockTimer=React.useRef(null);
+  const saveTimer=React.useRef(null);
+  const ignoreNext=React.useRef(false);
+
+  const[editingQuestId,setEditingQuestId]=React.useState(null);
+  const[editingRewardId,setEditingRewardId]=React.useState(null);
+  const[showNewQuest,setShowNewQuest]=React.useState(false);
+  const[showNewReward,setShowNewReward]=React.useState(false);
+  const[newQ,setNewQ]=React.useState({title:"",xp:10,difficulty:"Easy",assignedTo:ALL_KIDS,recurrence:"daily",enabled:true,icon:"✨"});
+  const[newR,setNewR]=React.useState({title:"",cost:30,category:"privileges",icon:"🎁"});
+
+  // ── Subscribe to Firebase ─────────────────────────────────────────────────
+  React.useEffect(()=>{
+    window._fbOnValue(data=>{
+      if(ignoreNext.current){ignoreNext.current=false;return;}
+      if(data){
+        if(data.kids)   setKids(data.kids);
+        if(data.quests) setQuests(data.quests);
+        if(data.rewards)setRewards(data.rewards);
+      }
+      setLoaded(true);
+      setSyncErr(null);
+      setLastSync(new Date().toLocaleTimeString());
+    });
+    // If Firebase fails to load, unblock the UI after 4s
+    const fallback=setTimeout(()=>setLoaded(l=>{if(!l)return true;return l;}),4000);
+    return()=>{clearTimeout(fallback);window._fbOff();};
+  },[]);
+
+  // ── Debounced save ────────────────────────────────────────────────────────
+  function saveToFirebase(k,q,r){
+    if(!loaded)return;
+    setSyncing(true);setSyncErr(null);
+    if(saveTimer.current)clearTimeout(saveTimer.current);
+    saveTimer.current=setTimeout(()=>{
+      ignoreNext.current=true;
+      window._fbSet({kids:k,quests:q,rewards:r})
+        .then(()=>{setSyncing(false);setLastSync(new Date().toLocaleTimeString());})
+        .catch(err=>{setSyncing(false);setSyncErr("Sync failed — check connection");console.error(err);});
+    },600);
+  }
+
+  function updateKids(fn)   {setKids(p=>{const n=fn(p);saveToFirebase(n,quests,rewards);return n;});}
+  function updateQuests(fn) {setQuests(p=>{const n=fn(p);saveToFirebase(kids,n,rewards);return n;});}
+  function updateRewards(fn){setRewards(p=>{const n=fn(p);saveToFirebase(kids,quests,n);return n;});}
+
+  function resetLockTimer(){
+    if(unlockTimer.current)clearTimeout(unlockTimer.current);
+    unlockTimer.current=setTimeout(()=>{setPinUnlocked(false);if(view==="admin")setView("quests");},TIMEOUT_MS);
+  }
+  function handleAdminTabPress(){
+    if(!storedPin){setPinMode("setup");return;}
+    if(pinUnlocked){setView("admin");resetLockTimer();return;}
+    setPinMode("unlock");
+  }
+  function handlePinComplete(pin){
+    if(pinMode==="setup"){setPinSetupFirst(pin);setPinMode("confirm");}
+    else if(pinMode==="confirm"){
+      if(pin===pinSetupFirst){savePin(pin);setStoredPin(pin);setPinMode(null);setPinUnlocked(true);setView("admin");resetLockTimer();showToast("PIN set! Parent tab unlocked 🔓","#4ade80");}
+      else{setPinError("PINs didn't match. Try again.");setPinMode("setup");setPinSetupFirst("");}
+    }else if(pinMode==="unlock"){
+      if(pin===storedPin){setPinMode(null);setPinUnlocked(true);setPinWrong(false);setView("admin");resetLockTimer();}
+      else{setPinWrong(true);setTimeout(()=>setPinWrong(false),600);showToast("Incorrect PIN","#f87171");}
+    }else if(pinMode==="change1"){
+      if(pin===storedPin)setPinMode("change2");
+      else{setPinWrong(true);setTimeout(()=>setPinWrong(false),600);showToast("Incorrect current PIN","#f87171");}
+    }else if(pinMode==="change2"){setPinSetupFirst(pin);setPinMode("change3");}
+    else if(pinMode==="change3"){
+      if(pin===pinSetupFirst){savePin(pin);setStoredPin(pin);setPinMode(null);showToast("PIN updated! 🔐","#4ade80");}
+      else{setPinError("PINs didn't match.");setPinMode("change2");setPinSetupFirst("");}
+    }
+  }
+  function lockNow(){setPinUnlocked(false);setView("quests");if(unlockTimer.current)clearTimeout(unlockTimer.current);showToast("Parent tab locked 🔒","#a78bfa");}
+
+  const kid=kids[activeKid]||DEFAULT_KIDS[0];
+  const myQuests=quests.filter(q=>q.assignedTo===ALL_KIDS||q.assignedTo===activeKid);
+  const positiveQuests=myQuests.filter(q=>q.xp>=0);
+  const penaltyQuests=myQuests.filter(q=>q.xp<0);
+  const diffColor={Easy:"#4ade80",Medium:"#fbbf24",Hard:"#f87171"};
+
+  function showToast(msg,color){color=color||"#fbbf24";setToast({msg,color});setTimeout(()=>setToast(null),2800);}
+
+  function completeQuest(quest){
+    const res=questAvailable(quest,kid.completedQuests);
+    if(!res.available){showToast(res.reason||"Not available.","#f87171");return;}
+    const prevXp=kid.xp,newXp=Math.max(0,prevXp+quest.xp);
+    const key=quest.recurrence==="weekly"?weekKey():todayStr();
+    const leveled=quest.xp>0&&getLevelInfo(newXp).cur.level>getLevelInfo(prevXp).cur.level;
+    updateKids(p=>p.map((k,i)=>i===activeKid?{...k,xp:newXp,completedQuests:[...k.completedQuests,{...quest,periodKey:key,timestamp:Date.now()}]}:k));
+    if(leveled){setCelebrate(true);setTimeout(()=>setCelebrate(false),2500);showToast("⚡ LEVEL UP! Now a "+getLevelInfo(newXp).cur.title+"!","#a78bfa");}
+    else if(quest.xp<0)showToast(quest.xp+" XP deducted 😬","#f87171");
+    else showToast("+"+quest.xp+" XP earned! ⚔️","#4ade80");
+  }
+  function redeemReward(reward){
+    if(kid.xp<reward.cost){showToast("Not enough XP!","#f87171");return;}
+    updateKids(p=>p.map((k,i)=>i===activeKid?{...k,xp:k.xp-reward.cost,redeemedRewards:[...k.redeemedRewards,{...reward,date:todayStr(),timestamp:Date.now()}]}:k));
+    showToast("🎉 "+reward.title+" redeemed! Show a parent.","#f472b6");
+  }
+  function addQuest(){
+    if(!newQ.title.trim())return;
+    updateQuests(p=>[...p,{...newQ,id:Date.now(),icon:iconFor(newQ.title),enabled:newQ.recurrence==="manual"?false:true}]);
+    setNewQ({title:"",xp:10,difficulty:"Easy",assignedTo:ALL_KIDS,recurrence:"daily",enabled:true,icon:"✨"});
+    setShowNewQuest(false);showToast("Quest added!");
+  }
+  function addReward(){
+    if(!newR.title.trim())return;
+    updateRewards(p=>[...p,{...newR,id:Date.now(),icon:iconFor(newR.title)}]);
+    setNewR({title:"",cost:30,category:"privileges",icon:"🎁"});
+    setShowNewReward(false);showToast("Reward added!");
+  }
+  function saveQuestEdit(u){updateQuests(p=>p.map(q=>q.id===u.id?u:q));setEditingQuestId(null);showToast("Quest updated!");}
+  function saveRewardEdit(u){updateRewards(p=>p.map(r=>r.id===u.id?u:r));setEditingRewardId(null);showToast("Reward updated!");}
+
+  const G=c=>c||"#fbbf24";
+  const S={
+    app:{minHeight:"100vh",background:"linear-gradient(135deg,#0f0c29 0%,#1a1040 50%,#0f172a 100%)"},
+    wrap:{maxWidth:480,margin:"0 auto",padding:"0 0 90px"},
+    hdr:{padding:"20px 20px 10px",textAlign:"center",borderBottom:"1px solid rgba(167,139,250,0.15)"},
+    title:{fontSize:26,fontWeight:"bold",color:"#fbbf24",letterSpacing:2,margin:0,textShadow:"0 0 20px rgba(251,191,36,0.5)"},
+    sub:{color:"#64748b",fontSize:10,letterSpacing:4,marginTop:2},
+    tabs:{display:"flex",gap:8,padding:"12px 14px"},
+    tab:(a,c)=>({flex:1,padding:"10px 6px",borderRadius:12,border:"2px solid "+(a?c:"rgba(255,255,255,0.08)"),background:a?c+"22":"rgba(255,255,255,0.03)",cursor:"pointer",textAlign:"center",transition:"all 0.2s"}),
+    card:{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,padding:"13px 15px",marginBottom:9},
+    qcard:{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:13,padding:"11px 13px",marginBottom:7,display:"flex",alignItems:"center",gap:11,cursor:"pointer",transition:"all 0.2s"},
+    pcard:{background:"rgba(239,68,68,0.08)",border:"2px solid rgba(239,68,68,0.4)",borderRadius:13,padding:"11px 13px",marginBottom:7,display:"flex",alignItems:"center",gap:11,cursor:"pointer",transition:"all 0.2s"},
+    dcard:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:13,padding:"11px 13px",marginBottom:7,display:"flex",alignItems:"center",gap:11,opacity:0.45},
+    btn:(c)=>({background:G(c)+"18",border:"1px solid "+G(c)+"44",color:G(c),borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,fontFamily:"Georgia,serif"}),
+    pBtn:{background:"linear-gradient(135deg,#fbbf24,#f59e0b)",border:"none",color:"#1a1040",borderRadius:10,padding:"9px 18px",cursor:"pointer",fontWeight:"bold",fontFamily:"Georgia,serif",fontSize:13},
+    inp:{background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.14)",borderRadius:8,padding:"8px 11px",color:"#e2e8f0",fontFamily:"Georgia,serif",fontSize:13,width:"100%",boxSizing:"border-box"},
+    lbl:{fontSize:10,color:"#475569",letterSpacing:3,textTransform:"uppercase",marginBottom:9,marginTop:16,display:"block"},
+    nav:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(8,6,24,0.97)",borderTop:"1px solid rgba(167,139,250,0.18)",display:"flex",zIndex:100},
+    ni:(a)=>({flex:1,padding:"11px 4px",textAlign:"center",cursor:"pointer",color:a?"#fbbf24":"#3d4f63",fontSize:9,letterSpacing:1,borderTop:a?"2px solid #fbbf24":"2px solid transparent",transition:"all 0.2s"}),
+    badge:(c)=>({fontSize:9,background:c+"22",border:"1px solid "+c+"55",color:c,borderRadius:4,padding:"1px 5px",marginLeft:4,whiteSpace:"nowrap"}),
+    iconBtn:(c)=>({background:"none",border:"none",cursor:"pointer",fontSize:14,color:c||"#64748b",padding:"2px 4px",flexShrink:0}),
+  };
+
+  if(!loaded){return(
+    <div style={{...S.app,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
+      <div style={{fontSize:48,animation:"rot 1s linear infinite"}}>⚔️</div>
+      <div style={{color:"#64748b",fontSize:13,letterSpacing:2}}>LOADING QUEST DATA...</div>
+      <style>{`@keyframes rot{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );}
+
+  if(pinMode){
+    const cfgs={
+      setup:{title:"Create Parent PIN",subtitle:pinError||"Choose a 4-digit PIN"},
+      confirm:{title:"Confirm Your PIN",subtitle:"Enter the same PIN again"},
+      unlock:{title:"Parent Access",subtitle:pinWrong?"Incorrect PIN, try again":"Enter your PIN to unlock"},
+      change1:{title:"Change PIN",subtitle:pinWrong?"Incorrect PIN, try again":"Enter your current PIN"},
+      change2:{title:"New PIN",subtitle:pinError||"Choose a new 4-digit PIN"},
+      change3:{title:"Confirm New PIN",subtitle:"Enter your new PIN again"},
+    };
+    const cfg=cfgs[pinMode]||cfgs.unlock;
+    return(
+      <div style={{...S.app,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{width:"100%",maxWidth:380,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(167,139,250,0.2)",borderRadius:24}}>
+          <PinPad title={cfg.title} subtitle={cfg.subtitle} onComplete={handlePinComplete}
+            onCancel={(pinMode==="unlock"||pinMode==="change1")?()=>{setPinMode(null);setPinError("");}:null}
+            accentColor={pinMode==="unlock"?"#a78bfa":"#fbbf24"}/>
+        </div>
+      </div>
+    );
+  }
+
+  return(
+    <div style={S.app}>
+      {toast&&<div style={{position:"fixed",top:18,left:"50%",transform:"translateX(-50%)",background:"#0a0818",border:"1px solid "+toast.color,borderRadius:12,padding:"10px 20px",color:toast.color,zIndex:999,fontSize:13,boxShadow:"0 4px 20px "+toast.color+"44",whiteSpace:"nowrap",animation:"fi 0.2s ease"}}>{toast.msg}</div>}
+      {celebrate&&<div style={{position:"fixed",inset:0,display:"flex",alignItems:"center",justifyContent:"center",zIndex:998,pointerEvents:"none",background:"radial-gradient(ellipse at center,rgba(167,139,250,0.25) 0%,transparent 70%)"}}>
+        <div style={{fontSize:90,animation:"spin 0.4s infinite"}}>⚡</div>
+      </div>}
+
+      <div style={S.wrap}>
+        <div style={S.hdr}>
+          <div style={S.title}>⚔️ QUEST BOARD ⚔️</div>
+          <div style={S.sub}>FAMILY ADVENTURE GUILD</div>
+          <div style={{fontSize:10,marginTop:4,color:syncErr?"#f87171":syncing?"#fbbf24":"#334155",transition:"color 0.3s"}}>
+            {syncErr?("⚠️ "+syncErr):syncing?"☁️ Syncing...":lastSync?"✓ Synced · "+lastSync:"☁️ Connecting..."}
+          </div>
+        </div>
+
+        <div style={S.tabs}>
+          {kids.map((k,i)=>{
+            const li=getLevelInfo(k.xp),c=HERO_COLORS[i];
+            return <div key={k.id} style={S.tab(activeKid===i,c)} onClick={()=>setActiveKid(i)}>
+              <div style={{fontSize:22}}>{HERO_ICONS[i]}</div>
+              <div style={{fontSize:12,fontWeight:"bold",color:"#e2e8f0",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{k.name}</div>
+              <div style={{fontSize:10,color:c,marginTop:1}}>{k.xp} XP · Lv{li.cur.level}</div>
+            </div>;
+          })}
+        </div>
+
+        <div style={{padding:"0 14px"}}>
+
+          {view==="quests"&&<>
+            <JourneyMap xp={kid.xp} heroIcon={HERO_ICONS[activeKid]} heroColor={HERO_COLORS[activeKid]} kidName={kid.name}/>
+            <XPBar xp={kid.xp}/>
+            <div style={{height:12}}/>
+            <span style={S.lbl}>📜 Available Quests</span>
+            {positiveQuests.map(q=>{
+              const res=questAvailable(q,kid.completedQuests);
+              if(!res.available)return <div key={q.id} style={S.dcard}>
+                <div style={{fontSize:24,minWidth:36,textAlign:"center"}}>{q.icon}</div>
+                <div style={{flex:1}}><div style={{fontSize:13,fontWeight:"bold"}}>{q.title}</div><div style={{fontSize:10,color:"#4ade80",marginTop:2}}>{res.reason}</div></div>
+                <div style={{color:"#4ade80",fontSize:18}}>✓</div>
+              </div>;
+              return <div key={q.id} className="qhov" style={S.qcard} onClick={()=>completeQuest(q)}>
+                <div style={{fontSize:24,minWidth:36,textAlign:"center"}}>{q.icon}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:"bold"}}>{q.title}</div>
+                  <div style={{display:"flex",gap:5,marginTop:3,alignItems:"center",flexWrap:"wrap"}}>
+                    <span style={{fontSize:10,color:diffColor[q.difficulty]||"#94a3b8"}}>◆ {q.difficulty}</span>
+                    {q.recurrence==="weekly"&&<span style={S.badge("#a78bfa")}>Weekly</span>}
+                    {q.recurrence==="manual"&&<span style={S.badge("#f472b6")}>Special</span>}
+                  </div>
+                </div>
+                <div style={{color:"#fbbf24",fontWeight:"bold",fontSize:13}}>+{q.xp} XP</div>
+              </div>;
+            })}
+            {penaltyQuests.length>0&&<>
+              <span style={{...S.lbl,color:"#ef4444",borderBottom:"1px solid rgba(239,68,68,0.2)",paddingBottom:6}}>⚠️ Watch Out — Penalties</span>
+              <div style={{background:"rgba(239,68,68,0.04)",border:"1px solid rgba(239,68,68,0.15)",borderRadius:14,padding:"10px 10px 4px",marginBottom:12}}>
+                <div style={{fontSize:11,color:"rgba(239,68,68,0.7)",marginBottom:8,paddingLeft:2}}>These will deduct XP from your journey!</div>
+                {penaltyQuests.map(q=><div key={q.id} style={S.pcard} onClick={()=>completeQuest(q)}>
+                  <div style={{fontSize:22,minWidth:34,textAlign:"center"}}>{q.icon}</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:"bold",color:"#fca5a5"}}>{q.title}</div>
+                    <div style={{fontSize:10,color:"rgba(239,68,68,0.7)",marginTop:2}}>Tap to record this happened</div>
+                  </div>
+                  <div style={{background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:8,padding:"3px 8px",color:"#ef4444",fontWeight:"bold",fontSize:13}}>{q.xp} XP</div>
+                </div>)}
+              </div>
+            </>}
+          </>}
+
+          {view==="rewards"&&<>
+            <div style={{...S.card,textAlign:"center",background:"rgba(251,191,36,0.07)",border:"1px solid rgba(251,191,36,0.2)",marginTop:8}}>
+              <div style={{fontSize:24,fontWeight:"bold",color:"#fbbf24"}}>🪙 {kid.xp} XP to spend</div>
+            </div>
+            {REWARD_CATS.map(cat=>{
+              const catR=rewards.filter(r=>r.category===cat.id);
+              if(!catR.length)return null;
+              return <div key={cat.id}>
+                <span style={S.lbl}>{cat.icon} {cat.label}</span>
+                {catR.map(r=><div key={r.id} className="rhov" style={{...S.card,display:"flex",alignItems:"center",gap:11,cursor:"pointer",border:"1px solid "+(kid.xp>=r.cost?cat.color+"44":"rgba(255,255,255,0.06)"),opacity:kid.xp>=r.cost?1:0.45,transition:"all 0.2s"}} onClick={()=>redeemReward(r)}>
+                  <div style={{fontSize:26}}>{r.icon}</div>
+                  <div style={{flex:1,fontSize:13,fontWeight:"bold"}}>{r.title}</div>
+                  <div style={{color:cat.color,fontWeight:"bold",fontSize:13}}>{r.cost} XP</div>
+                </div>)}
+              </div>;
+            })}
+          </>}
+
+          {view==="history"&&<>
+            <span style={S.lbl}>📖 Quest Log</span>
+            {kid.completedQuests.length===0&&<div style={{...S.card,textAlign:"center",color:"#475569",fontSize:13}}>No quests yet!</div>}
+            {[...kid.completedQuests].reverse().map((q,i)=><div key={i} style={{...S.card,display:"flex",alignItems:"center",gap:11,border:"1px solid "+(q.xp<0?"rgba(239,68,68,0.2)":"rgba(255,255,255,0.08)"),background:q.xp<0?"rgba(239,68,68,0.05)":"rgba(255,255,255,0.04)"}}>
+              <span style={{fontSize:22}}>{q.icon}</span>
+              <div style={{flex:1}}><div style={{fontSize:13,fontWeight:"bold"}}>{q.title}</div><div style={{fontSize:10,color:"#475569"}}>{q.periodKey}</div></div>
+              <span style={{color:q.xp>=0?"#4ade80":"#ef4444",fontWeight:"bold"}}>{q.xp>=0?"+":""}{q.xp}</span>
+            </div>)}
+            <span style={S.lbl}>🎁 Redeemed Rewards</span>
+            {kid.redeemedRewards.length===0&&<div style={{...S.card,textAlign:"center",color:"#475569",fontSize:13}}>No rewards yet.</div>}
+            {[...kid.redeemedRewards].reverse().map((r,i)=><div key={i} style={{...S.card,display:"flex",alignItems:"center",gap:11}}>
+              <span style={{fontSize:22}}>{r.icon}</span>
+              <div style={{flex:1}}><div style={{fontSize:13,fontWeight:"bold"}}>{r.title}</div><div style={{fontSize:10,color:"#475569"}}>{r.date}</div></div>
+              <span style={{color:"#f472b6",fontWeight:"bold"}}>-{r.cost}</span>
+            </div>)}
+          </>}
+
+          {view==="admin"&&<>
+            <div style={{...S.card,display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(167,139,250,0.07)",border:"1px solid rgba(167,139,250,0.2)",marginTop:8}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:"bold",color:"#a78bfa"}}>🔓 Parent Mode Active</div>
+                <div style={{fontSize:10,color:"#64748b",marginTop:2}}>Auto-locks in 5 minutes</div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button style={S.btn("#64748b")} onClick={()=>setPinMode("change1")}>Change PIN</button>
+                <button style={S.btn("#a78bfa")} onClick={lockNow}>Lock Now</button>
+              </div>
+            </div>
+
+            <span style={S.lbl}>👑 Rename Heroes</span>
+            {kids.map((k,i)=><div key={k.id} style={{...S.card,display:"flex",gap:10,alignItems:"center"}}>
+              <span style={{fontSize:22}}>{HERO_ICONS[i]}</span>
+              <input style={{...S.inp,flex:1}} defaultValue={k.name} placeholder="Hero name"
+                onBlur={e=>{const v=e.target.value.trim();if(v)updateKids(p=>p.map((kk,idx)=>idx===i?{...kk,name:v}:kk));}}/>
+            </div>)}
+
+            <span style={S.lbl}>📜 Manage Quests</span>
+            {quests.map(q=>editingQuestId===q.id
+              ?<QuestEditForm key={q.id} quest={q} kids={kids} onSave={saveQuestEdit} onCancel={()=>setEditingQuestId(null)} S={S}/>
+              :<div key={q.id} style={{...S.card,display:"flex",alignItems:"center",gap:8,opacity:q.enabled?1:0.5,border:q.xp<0?"1px solid rgba(239,68,68,0.25)":"1px solid rgba(255,255,255,0.08)",background:q.xp<0?"rgba(239,68,68,0.06)":"rgba(255,255,255,0.04)"}}>
+                <span style={{fontSize:20}}>{q.icon}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:"bold",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:q.xp<0?"#fca5a5":"#e2e8f0"}}>{q.title}</div>
+                  <div style={{display:"flex",gap:4,marginTop:3,flexWrap:"wrap"}}>
+                    <span style={S.badge(q.xp<0?"#ef4444":"#fbbf24")}>{q.xp>=0?"+":""}{q.xp} XP</span>
+                    {q.assignedTo!==ALL_KIDS&&<span style={S.badge("#818cf8")}>{kids[q.assignedTo]?kids[q.assignedTo].name:"Kid"} only</span>}
+                    {q.recurrence!=="daily"&&<span style={S.badge("#a78bfa")}>{q.recurrence}</span>}
+                  </div>
+                </div>
+                <Toggle on={q.enabled} onClick={()=>updateQuests(p=>p.map(x=>x.id===q.id?{...x,enabled:!x.enabled}:x))}/>
+                <button style={S.iconBtn("#94a3b8")} onClick={()=>{setEditingQuestId(q.id);setShowNewQuest(false);}}>✏️</button>
+                <button style={S.iconBtn("#f87171")} onClick={()=>updateQuests(p=>p.filter(x=>x.id!==q.id))}>✕</button>
+              </div>
+            )}
+            {!showNewQuest
+              ?<button style={{...S.btn("#fbbf24"),width:"100%",marginTop:6}} onClick={()=>{setShowNewQuest(true);setEditingQuestId(null);}}>+ Add Quest</button>
+              :<div style={{...S.card,border:"1px solid rgba(251,191,36,0.3)",background:"rgba(251,191,36,0.04)"}}>
+                <div style={{display:"flex",flexDirection:"column",gap:9}}>
+                  <div style={{display:"flex",gap:8}}>
+                    <input style={{...S.inp,width:52}} value={newQ.icon} onChange={e=>setNewQ(f=>({...f,icon:e.target.value}))} placeholder="Icon"/>
+                    <input style={{...S.inp,flex:1}} placeholder="Quest name" value={newQ.title} onChange={e=>setNewQ(f=>({...f,title:e.target.value,icon:iconFor(e.target.value)}))}/>
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <input style={{...S.inp,flex:1}} type="number" placeholder="XP (neg = penalty)" value={newQ.xp} onChange={e=>setNewQ(f=>({...f,xp:+e.target.value}))}/>
+                    <select style={{...S.inp,flex:1}} value={newQ.difficulty} onChange={e=>setNewQ(f=>({...f,difficulty:e.target.value}))}><option>Easy</option><option>Medium</option><option>Hard</option></select>
+                  </div>
+                  <select style={S.inp} value={newQ.assignedTo===ALL_KIDS?ALL_KIDS:String(newQ.assignedTo)} onChange={e=>setNewQ(f=>({...f,assignedTo:e.target.value===ALL_KIDS?ALL_KIDS:+e.target.value}))}>
+                    <option value={ALL_KIDS}>All heroes</option>
+                    {kids.map((k,i)=><option key={i} value={String(i)}>{k.name} only</option>)}
+                  </select>
+                  <select style={S.inp} value={newQ.recurrence} onChange={e=>setNewQ(f=>({...f,recurrence:e.target.value}))}>
+                    {RECURRENCE_OPTS.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}
+                  </select>
+                  <div style={{display:"flex",gap:8}}>
+                    <button style={S.pBtn} onClick={addQuest}>Add Quest</button>
+                    <button style={S.btn()} onClick={()=>setShowNewQuest(false)}>Cancel</button>
+                  </div>
+                </div>
+              </div>
+            }
+
+            <span style={S.lbl}>🎁 Manage Rewards</span>
+            {rewards.map(r=>editingRewardId===r.id
+              ?<RewardEditForm key={r.id} reward={r} onSave={saveRewardEdit} onCancel={()=>setEditingRewardId(null)} S={S}/>
+              :<div key={r.id} style={{...S.card,display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:20}}>{r.icon}</span>
+                <span style={{flex:1,fontSize:12}}>{r.title}</span>
+                <span style={S.badge("#f472b6")}>{r.cost} XP</span>
+                <button style={S.iconBtn("#94a3b8")} onClick={()=>{setEditingRewardId(r.id);setShowNewReward(false);}}>✏️</button>
+                <button style={S.iconBtn("#f87171")} onClick={()=>updateRewards(p=>p.filter(x=>x.id!==r.id))}>✕</button>
+              </div>
+            )}
+            {!showNewReward
+              ?<button style={{...S.btn("#a78bfa"),width:"100%",marginTop:6}} onClick={()=>{setShowNewReward(true);setEditingRewardId(null);}}>+ Add Reward</button>
+              :<div style={{...S.card,border:"1px solid rgba(167,139,250,0.3)",background:"rgba(167,139,250,0.04)"}}>
+                <div style={{display:"flex",flexDirection:"column",gap:9}}>
+                  <div style={{display:"flex",gap:8}}>
+                    <input style={{...S.inp,width:52}} value={newR.icon} onChange={e=>setNewR(f=>({...f,icon:e.target.value}))} placeholder="Icon"/>
+                    <input style={{...S.inp,flex:1}} placeholder="Reward name" value={newR.title} onChange={e=>setNewR(f=>({...f,title:e.target.value,icon:iconFor(e.target.value)}))}/>
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <input style={{...S.inp,flex:1}} type="number" placeholder="XP cost" value={newR.cost} onChange={e=>setNewR(f=>({...f,cost:+e.target.value}))}/>
+                    <select style={{...S.inp,flex:1}} value={newR.category} onChange={e=>setNewR(f=>({...f,category:e.target.value}))}>
+                      {REWARD_CATS.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+                    </select>
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button style={S.pBtn} onClick={addReward}>Add Reward</button>
+                    <button style={S.btn()} onClick={()=>setShowNewReward(false)}>Cancel</button>
+                  </div>
+                </div>
+              </div>
+            }
+
+            <span style={S.lbl}>⚠️ Reset Progress</span>
+            {kids.map((k,i)=><div key={k.id} style={{...S.card,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:13}}>{HERO_ICONS[i]} {k.name} · {k.xp} XP</span>
+              <button style={S.btn("#f87171")} onClick={()=>{
+                if(window.confirm("Reset all progress for "+k.name+"?"))
+                  updateKids(p=>p.map((kk,idx)=>idx===i?{...kk,xp:0,completedQuests:[],redeemedRewards:[]}:kk));
+              }}>Reset</button>
+            </div>)}
+          </>}
+
+        </div>
+      </div>
+
+      <div style={S.nav}>
+        {[{id:"quests",icon:"📜",label:"QUESTS"},{id:"rewards",icon:"🎁",label:"REWARDS"},{id:"history",icon:"📖",label:"HISTORY"}].map(n=>(
+          <div key={n.id} style={S.ni(view===n.id)} onClick={()=>setView(n.id)}>
+            <div style={{fontSize:20}}>{n.icon}</div><div>{n.label}</div>
+          </div>
+        ))}
+        <div style={{...S.ni(view==="admin"),position:"relative"}} onClick={handleAdminTabPress}>
+          <div style={{fontSize:20}}>{pinUnlocked?"👑":"🔒"}</div><div>PARENT</div>
+          {!pinUnlocked&&<div style={{position:"absolute",top:6,right:10,width:7,height:7,borderRadius:"50%",background:"#a78bfa"}}/>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
