@@ -110,7 +110,8 @@ function questAvailable(quest,comp){
   if(!quest.enabled)return{available:false,reason:"Turned off by parent"};
   if(quest.recurrence==="manual")return{available:true};
   const key=quest.recurrence==="weekly"?weekKey():todayStr();
-  const done=comp.some(c=>c.id===quest.id&&c.periodKey===key);
+  const list=Array.isArray(comp)?comp:[];
+  const done=list.some(c=>c.id===quest.id&&c.periodKey===key);
   if(done)return{available:false,reason:quest.recurrence==="weekly"?"Done this week ✓":"Done today ✓"};
   return{available:true};
 }
@@ -437,6 +438,12 @@ function App(){
   function lockNow(){setPinUnlocked(false);setView("quests");if(unlockTimer.current)clearTimeout(unlockTimer.current);showToast("Parent tab locked 🔒","#a78bfa");}
 
   const kid=kids[activeKid]||DEFAULT_KIDS[0];
+  // Ensure arrays are never null (Firebase stores empty arrays as null)
+  const safeKid={
+    ...kid,
+    completedQuests:Array.isArray(kid.completedQuests)?kid.completedQuests:[],
+    redeemedRewards:Array.isArray(kid.redeemedRewards)?kid.redeemedRewards:[],
+  };
   const myQuests=quests.filter(q=>q.assignedTo===ALL_KIDS||q.assignedTo===activeKid);
   const positiveQuests=myQuests.filter(q=>q.xp>=0);
   const penaltyQuests=myQuests.filter(q=>q.xp<0);
@@ -445,19 +452,19 @@ function App(){
   function showToast(msg,color){color=color||"#fbbf24";setToast({msg,color});setTimeout(()=>setToast(null),2800);}
 
   function completeQuest(quest){
-    const res=questAvailable(quest,kid.completedQuests);
+    const res=questAvailable(quest,safeKid.completedQuests);
     if(!res.available){showToast(res.reason||"Not available.","#f87171");return;}
-    const prevXp=kid.xp,newXp=Math.max(0,prevXp+quest.xp);
+    const prevXp=safeKid.xp,newXp=Math.max(0,prevXp+quest.xp);
     const key=quest.recurrence==="weekly"?weekKey():todayStr();
     const leveled=quest.xp>0&&getLevelInfo(newXp).cur.level>getLevelInfo(prevXp).cur.level;
-    updateKids(p=>p.map((k,i)=>i===activeKid?{...k,xp:newXp,completedQuests:[...k.completedQuests,{...quest,periodKey:key,timestamp:Date.now()}]}:k));
+    updateKids(p=>p.map((k,i)=>i===activeKid?{...k,xp:newXp,completedQuests:[...(Array.isArray(k.completedQuests)?k.completedQuests:[]),{...quest,periodKey:key,timestamp:Date.now()}]}:k));
     if(leveled){setCelebrate(true);setTimeout(()=>setCelebrate(false),2500);showToast("⚡ LEVEL UP! Now a "+getLevelInfo(newXp).cur.title+"!","#a78bfa");}
     else if(quest.xp<0)showToast(quest.xp+" XP deducted 😬","#f87171");
     else showToast("+"+quest.xp+" XP earned! ⚔️","#4ade80");
   }
   function redeemReward(reward){
-    if(kid.xp<reward.cost){showToast("Not enough XP!","#f87171");return;}
-    updateKids(p=>p.map((k,i)=>i===activeKid?{...k,xp:k.xp-reward.cost,redeemedRewards:[...k.redeemedRewards,{...reward,date:todayStr(),timestamp:Date.now()}]}:k));
+    if(safeKid.xp<reward.cost){showToast("Not enough XP!","#f87171");return;}
+    updateKids(p=>p.map((k,i)=>i===activeKid?{...k,xp:k.xp-reward.cost,redeemedRewards:[...(Array.isArray(k.redeemedRewards)?k.redeemedRewards:[]),{...reward,date:todayStr(),timestamp:Date.now()}]}:k));
     showToast("🎉 "+reward.title+" redeemed! Show a parent.","#f472b6");
   }
   function addQuest(){
@@ -549,12 +556,12 @@ function App(){
         <div style={{padding:"0 14px"}}>
 
           {view==="quests"&&<>
-            <JourneyMap xp={kid.xp} heroIcon={HERO_ICONS[activeKid]} heroColor={HERO_COLORS[activeKid]} kidName={kid.name}/>
-            <XPBar xp={kid.xp}/>
+            <JourneyMap xp={safeKid.xp} heroIcon={HERO_ICONS[activeKid]} heroColor={HERO_COLORS[activeKid]} kidName={safeKid.name}/>
+            <XPBar xp={safeKid.xp}/>
             <div style={{height:12}}/>
             <span style={S.lbl}>📜 Available Quests</span>
             {positiveQuests.map(q=>{
-              const res=questAvailable(q,kid.completedQuests);
+              const res=questAvailable(q,safeKid.completedQuests);
               if(!res.available)return <div key={q.id} style={S.dcard}>
                 <div style={{fontSize:24,minWidth:36,textAlign:"center"}}>{q.icon}</div>
                 <div style={{flex:1}}><div style={{fontSize:13,fontWeight:"bold"}}>{q.title}</div><div style={{fontSize:10,color:"#4ade80",marginTop:2}}>{res.reason}</div></div>
@@ -591,14 +598,14 @@ function App(){
 
           {view==="rewards"&&<>
             <div style={{...S.card,textAlign:"center",background:"rgba(251,191,36,0.07)",border:"1px solid rgba(251,191,36,0.2)",marginTop:8}}>
-              <div style={{fontSize:24,fontWeight:"bold",color:"#fbbf24"}}>🪙 {kid.xp} XP to spend</div>
+              <div style={{fontSize:24,fontWeight:"bold",color:"#fbbf24"}}>🪙 {safeKid.xp} XP to spend</div>
             </div>
             {REWARD_CATS.map(cat=>{
               const catR=rewards.filter(r=>r.category===cat.id);
               if(!catR.length)return null;
               return <div key={cat.id}>
                 <span style={S.lbl}>{cat.icon} {cat.label}</span>
-                {catR.map(r=><div key={r.id} className="rhov" style={{...S.card,display:"flex",alignItems:"center",gap:11,cursor:"pointer",border:"1px solid "+(kid.xp>=r.cost?cat.color+"44":"rgba(255,255,255,0.06)"),opacity:kid.xp>=r.cost?1:0.45,transition:"all 0.2s"}} onClick={()=>redeemReward(r)}>
+                {catR.map(r=><div key={r.id} className="rhov" style={{...S.card,display:"flex",alignItems:"center",gap:11,cursor:"pointer",border:"1px solid "+(safeKid.xp>=r.cost?cat.color+"44":"rgba(255,255,255,0.06)"),opacity:safeKid.xp>=r.cost?1:0.45,transition:"all 0.2s"}} onClick={()=>redeemReward(r)}>
                   <div style={{fontSize:26}}>{r.icon}</div>
                   <div style={{flex:1,fontSize:13,fontWeight:"bold"}}>{r.title}</div>
                   <div style={{color:cat.color,fontWeight:"bold",fontSize:13}}>{r.cost} XP</div>
@@ -609,15 +616,15 @@ function App(){
 
           {view==="history"&&<>
             <span style={S.lbl}>📖 Quest Log</span>
-            {kid.completedQuests.length===0&&<div style={{...S.card,textAlign:"center",color:"#475569",fontSize:13}}>No quests yet!</div>}
-            {[...kid.completedQuests].reverse().map((q,i)=><div key={i} style={{...S.card,display:"flex",alignItems:"center",gap:11,border:"1px solid "+(q.xp<0?"rgba(239,68,68,0.2)":"rgba(255,255,255,0.08)"),background:q.xp<0?"rgba(239,68,68,0.05)":"rgba(255,255,255,0.04)"}}>
+            {safeKid.completedQuests.length===0&&<div style={{...S.card,textAlign:"center",color:"#475569",fontSize:13}}>No quests yet!</div>}
+            {[...safeKid.completedQuests].reverse().map((q,i)=><div key={i} style={{...S.card,display:"flex",alignItems:"center",gap:11,border:"1px solid "+(q.xp<0?"rgba(239,68,68,0.2)":"rgba(255,255,255,0.08)"),background:q.xp<0?"rgba(239,68,68,0.05)":"rgba(255,255,255,0.04)"}}>
               <span style={{fontSize:22}}>{q.icon}</span>
               <div style={{flex:1}}><div style={{fontSize:13,fontWeight:"bold"}}>{q.title}</div><div style={{fontSize:10,color:"#475569"}}>{q.periodKey}</div></div>
               <span style={{color:q.xp>=0?"#4ade80":"#ef4444",fontWeight:"bold"}}>{q.xp>=0?"+":""}{q.xp}</span>
             </div>)}
             <span style={S.lbl}>🎁 Redeemed Rewards</span>
-            {kid.redeemedRewards.length===0&&<div style={{...S.card,textAlign:"center",color:"#475569",fontSize:13}}>No rewards yet.</div>}
-            {[...kid.redeemedRewards].reverse().map((r,i)=><div key={i} style={{...S.card,display:"flex",alignItems:"center",gap:11}}>
+            {safeKid.redeemedRewards.length===0&&<div style={{...S.card,textAlign:"center",color:"#475569",fontSize:13}}>No rewards yet.</div>}
+            {[...safeKid.redeemedRewards].reverse().map((r,i)=><div key={i} style={{...S.card,display:"flex",alignItems:"center",gap:11}}>
               <span style={{fontSize:22}}>{r.icon}</span>
               <div style={{flex:1}}><div style={{fontSize:13,fontWeight:"bold"}}>{r.title}</div><div style={{fontSize:10,color:"#475569"}}>{r.date}</div></div>
               <span style={{color:"#f472b6",fontWeight:"bold"}}>-{r.cost}</span>
